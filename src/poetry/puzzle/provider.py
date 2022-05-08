@@ -632,6 +632,8 @@ class Provider:
                         continue
                     self.search_for_direct_origin_dependency(dep)
 
+        _dependencies = self._add_implicit_dependencies(_dependencies)
+
         dependencies = self._get_dependencies_with_overrides(
             _dependencies, dependency_package
         )
@@ -972,6 +974,24 @@ class Provider:
             else:
                 groups.append([dep])
         return groups
+
+    def _add_implicit_dependencies(
+        self, dependencies: Iterable[Dependency]
+    ) -> list[Dependency]:
+        by_name: dict[str, list[Dependency]] = defaultdict(list)
+        for dep in dependencies:
+            by_name[dep.name].append(dep)
+        for _name, deps in by_name.items():
+            marker = MarkerUnion.of(*[d.marker.without_extras() for d in deps])
+            if marker.is_any():
+                continue
+            inverted_marker = marker.invert()
+            python_constraint = get_python_constraint_from_marker(inverted_marker)
+            if self._python_constraint.allows_any(python_constraint):
+                inverted_marker_dep = deps[0].with_constraint(EmptyConstraint())
+                inverted_marker_dep.marker = inverted_marker
+                deps.append(inverted_marker_dep)
+        return [dep for deps in by_name.values() for dep in deps]
 
     def _merge_dependencies_by_constraint(
         self, dependencies: Iterable[Dependency]
